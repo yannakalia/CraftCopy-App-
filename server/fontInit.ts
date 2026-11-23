@@ -18,10 +18,18 @@ function resolveExistingFontDirectories(): { dirs: string[]; hasBundledFonts: bo
     path.join(process.cwd(), 'fonts'),
   ];
 
+  if (process.env.LAMBDA_TASK_ROOT) {
+    bundledCandidates.unshift(
+      path.join(process.env.LAMBDA_TASK_ROOT, 'public', 'fonts'),
+      path.join(process.env.LAMBDA_TASK_ROOT, 'fonts')
+    );
+  }
+
   if (typeof __dirname === 'string' && __dirname) {
     bundledCandidates.push(
       path.join(__dirname, 'fonts'),
       path.resolve(__dirname, '../public/fonts'),
+      path.resolve(__dirname, '../../public/fonts'),
       path.resolve(__dirname, '../dist/fonts')
     );
   }

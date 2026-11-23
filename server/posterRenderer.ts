@@ -1709,7 +1709,7 @@ export async function renderPromotionalPosterPng(params: RenderPosterParams): Pr
 
   const finalBuffer = await sharp(svgToUtf8Buffer(baseSvgContent))
     .composite(composites)
-    .png({ compressionLevel: 7 })
+    .png({ compressionLevel: 9 })
     .toBuffer();
 
   return {

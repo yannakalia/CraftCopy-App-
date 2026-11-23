@@ -74,6 +74,42 @@ async function fetchWithTimeout(
   }
 }
 
+async function safeParseJsonResponse(res: Response): Promise<{ data: any; httpError?: string }> {
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (data) {
+    return { data };
+  }
+
+  if (res.status === 413) {
+    return {
+      data: null,
+      httpError: 'Image or upload payload is too large for the server limit. Please use a smaller photo and retry.',
+    };
+  }
+  if (res.status === 504) {
+    return {
+      data: null,
+      httpError: 'The server took too long to respond (HTTP 504). Please click Retry.',
+    };
+  }
+  if (res.status === 404) {
+    return {
+      data: null,
+      httpError: 'API endpoint not found (HTTP 404). Please check Netlify Functions and redirects configuration.',
+    };
+  }
+  return {
+    data: null,
+    httpError: `Unexpected response from server (HTTP ${res.status}). Please retry.`,
+  };
+}
+
 export async function checkServerHealth(): Promise<{
   geminiConfigured: boolean;
   supabaseConfigured: boolean;
@@ -146,11 +182,9 @@ export async function generateMarketingContent(
     30000
   );
 
-  let data: any = null;
-  try {
-    data = await res.json();
-  } catch {
-    throw new Error(`Unexpected response from server (HTTP ${res.status}). Please retry.`);
+  const { data, httpError } = await safeParseJsonResponse(res);
+  if (!data) {
+    throw new Error(httpError || `Unexpected response from server (HTTP ${res.status}). Please retry.`);
   }
 
   if (!res.ok || data?.success === false || !data?.data) {
@@ -263,12 +297,15 @@ export async function generatePosterImage(params: {
       30000
     );
 
-    const data = await res.json();
+    const { data, httpError } = await safeParseJsonResponse(res);
     if (!res.ok || !data?.success || !data?.posterUrl) {
       return {
         success: false,
-        error: data?.error || `Poster generation failed (HTTP ${res.status}). Please click Retry.`,
-        retryable: data?.retryable ?? true,
+        error:
+          data?.error ||
+          httpError ||
+          `Poster generation failed (HTTP ${res.status}). Please click Retry.`,
+        retryable: data?.retryable ?? res.status !== 413,
       };
     }
 
@@ -309,8 +346,8 @@ export async function reviseMarketingCaption(
       22000
     );
 
-    const data = await res.json();
-    if (res.ok && data.success && data.revisedCaption) {
+    const { data, httpError } = await safeParseJsonResponse(res);
+    if (res.ok && data?.success && data?.revisedCaption) {
       return {
         success: true,
         revisedCaption: {
@@ -325,7 +362,7 @@ export async function reviseMarketingCaption(
     return {
       success: false,
       isSimulated: false,
-      error: data?.error || 'Could not revise caption. Please try again.',
+      error: data?.error || httpError || 'Could not revise caption. Please try again.',
     };
   } catch (err: any) {
     return {
@@ -368,8 +405,8 @@ export async function regenerateMarketingCaption(
       22000
     );
 
-    const data = await res.json();
-    if (res.ok && data.success && data.newCaption) {
+    const { data, httpError } = await safeParseJsonResponse(res);
+    if (res.ok && data?.success && data?.newCaption) {
       return {
         success: true,
         newCaption: data.newCaption,
@@ -380,7 +417,7 @@ export async function regenerateMarketingCaption(
     return {
       success: false,
       isSimulated: false,
-      error: data?.error || 'Could not regenerate caption. Please try again.',
+      error: data?.error || httpError || 'Could not regenerate caption. Please try again.',
     };
   } catch (err: any) {
     return {
@@ -419,7 +456,7 @@ export async function rewriteCaptionsForTheme(params: {
       25000
     );
 
-    const data = await res.json();
+    const { data, httpError } = await safeParseJsonResponse(res);
     if (res.ok && data?.success && data?.data) {
       return {
         success: true,
@@ -430,7 +467,7 @@ export async function rewriteCaptionsForTheme(params: {
 
     return {
       success: false,
-      error: data?.error || `Could not rewrite captions for theme (HTTP ${res.status}).`,
+      error: data?.error || httpError || `Could not rewrite captions for theme (HTTP ${res.status}).`,
     };
   } catch (err: any) {
     return {
@@ -454,11 +491,11 @@ export async function uploadPosterPng(
       },
       20000
     );
-    const data = await res.json();
-    if (res.ok && data.success && data.url) {
+    const { data, httpError } = await safeParseJsonResponse(res);
+    if (res.ok && data?.success && data?.url) {
       return { success: true, url: data.url, publicUrl: data.publicUrl };
     }
-    return { success: false, error: data.error || 'Failed to save poster PNG' };
+    return { success: false, error: data?.error || httpError || 'Failed to save poster PNG' };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Upload error' };
   }
@@ -479,9 +516,12 @@ export async function brainstormProductIdeas(
       },
       25000
     );
-    const data = await res.json();
-    if (!res.ok || !data.success || !Array.isArray(data.ideas)) {
-      return { success: false, error: data?.error || 'Could not generate ideas. Please try again.' };
+    const { data, httpError } = await safeParseJsonResponse(res);
+    if (!res.ok || !data?.success || !Array.isArray(data.ideas)) {
+      return {
+        success: false,
+        error: data?.error || httpError || 'Could not generate ideas. Please try again.',
+      };
     }
     return { success: true, ideas: data.ideas as ProductIdea[] };
   } catch (err: any) {

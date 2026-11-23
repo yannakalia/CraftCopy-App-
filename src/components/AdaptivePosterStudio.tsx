@@ -1984,6 +1984,10 @@ export const AdaptivePosterStudio: React.FC<AdaptivePosterStudioProps> = ({
         businessName: resolvedBusinessName,
         productName: resolvedProductName,
         imageBlob: resolved.blob,
+        posterSourceUrl:
+          !hasLocalCanvasEdits && /^https:\/\//i.test(displayPosterSrc)
+            ? displayPosterSrc
+            : undefined,
         caption: fullCompiledCaption.trim(),
       });
 

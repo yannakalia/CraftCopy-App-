@@ -524,7 +524,8 @@ export async function saveGeneratedPosterToSupabase(params: {
   sellerName: string;
   businessName: string;
   productName: string;
-  imageBlob: Blob;
+  imageBlob?: Blob;
+  posterSourceUrl?: string;
   caption: string;
 }): Promise<{
   success: boolean;
@@ -542,7 +543,10 @@ export async function saveGeneratedPosterToSupabase(params: {
     };
   }
 
-  if (!params.imageBlob || params.imageBlob.size < 500) {
+  const cleanSourceUrl = (params.posterSourceUrl || '').trim();
+  const hasHttpsSource = /^https:\/\//i.test(cleanSourceUrl);
+
+  if (!hasHttpsSource && (!params.imageBlob || params.imageBlob.size < 500)) {
     return {
       success: false,
       isConfigured: true,
@@ -551,7 +555,17 @@ export async function saveGeneratedPosterToSupabase(params: {
   }
 
   try {
-    const imageDataUrl = await blobToSafeImageDataUrl(params.imageBlob);
+    let imageDataUrl: string | undefined;
+    if (!hasHttpsSource && params.imageBlob) {
+      imageDataUrl = await blobToSafeImageDataUrl(params.imageBlob);
+      if (imageDataUrl.length > 5_200_000) {
+        return {
+          success: false,
+          isConfigured: true,
+          error: 'Poster image exceeds upload size limit (~4 MB). Please switch to JPG or regenerate and retry.',
+        };
+      }
+    }
 
     const res = await fetch('/api/posters/save', {
       method: 'POST',
@@ -561,7 +575,7 @@ export async function saveGeneratedPosterToSupabase(params: {
         businessName: (params.businessName || '').trim(),
         productName: (params.productName || '').trim(),
         caption: (params.caption || '').trim(),
-        imageDataUrl,
+        ...(hasHttpsSource ? { posterSourceUrl: cleanSourceUrl } : { imageDataUrl }),
       }),
     });
 
@@ -570,7 +584,10 @@ export async function saveGeneratedPosterToSupabase(params: {
       return {
         success: false,
         isConfigured: true,
-        error: `Unexpected server response (HTTP ${res.status}).`,
+        error:
+          res.status === 413
+            ? 'Poster image payload exceeded the server size limit. Please retry with a smaller photo.'
+            : `Unexpected server response (HTTP ${res.status}).`,
       };
     }
 

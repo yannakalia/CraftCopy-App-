@@ -186,12 +186,19 @@ export function getDirectPosterDownloadUrl(params: {
 }): string | null {
   const { src, productName, aspectRatio = '4:5', format = 'png' } = params;
   if (!src) return null;
-  const localUploadFile = extractLocalUploadFileName(src);
-  if (!localUploadFile) return null;
   const stem = buildPosterFileStem(productName, aspectRatio);
-  return `/api/posters/download?file=${encodeURIComponent(localUploadFile)}&format=${encodeURIComponent(
-    format
-  )}&name=${encodeURIComponent(stem)}`;
+  const localUploadFile = extractLocalUploadFileName(src);
+  if (localUploadFile) {
+    return `/api/posters/download?file=${encodeURIComponent(localUploadFile)}&format=${encodeURIComponent(
+      format
+    )}&name=${encodeURIComponent(stem)}`;
+  }
+  if (/^https:\/\//i.test(src.trim())) {
+    return `/api/posters/download?url=${encodeURIComponent(src.trim())}&format=${encodeURIComponent(
+      format
+    )}&name=${encodeURIComponent(stem)}`;
+  }
+  return null;
 }
 
 export async function resolveHighResPosterBlob(params: {
@@ -221,9 +228,10 @@ export async function resolveHighResPosterBlob(params: {
   }
 
   const directUrl = getDirectPosterDownloadUrl({ src, productName, aspectRatio, format });
+  const isHttpsSrc = /^https:\/\//i.test(src.trim());
 
   const loadPromise = (async (): Promise<ResolvedPosterAsset> => {
-    // 1. Server-hosted poster inside /uploads/ -> fetch via dedicated attachment route at 100% native resolution
+    // 1. Server-hosted or HTTPS-hosted poster -> fetch via dedicated attachment route at 100% native resolution
     if (directUrl) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 25000);
@@ -254,10 +262,13 @@ export async function resolveHighResPosterBlob(params: {
         setCachedPosterAsset(cacheKey, asset);
         return asset;
       } catch (err: any) {
-        if (err?.name === 'AbortError') {
-          throw new Error('Poster download timed out. Please check your connection and try again.');
+        // For HTTPS Supabase Storage URLs, seamlessly fall through to direct CORS fetch + canvas export if serverless endpoint fails
+        if (!isHttpsSrc) {
+          if (err?.name === 'AbortError') {
+            throw new Error('Poster download timed out. Please check your connection and try again.');
+          }
+          throw err;
         }
-        throw err;
       } finally {
         clearTimeout(timer);
       }
